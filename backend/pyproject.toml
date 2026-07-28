@@ -1,0 +1,15 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | migrations
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip = [".venv", "migrations"]

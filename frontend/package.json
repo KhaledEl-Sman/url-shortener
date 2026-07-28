@@ -1,0 +1,14 @@
+{
+  "name": "url-shortener-frontend",
+  "version": "0.1.0",
+  "description": "URL Shortener — Vanilla JS frontend",
+  "private": true,
+  "scripts": {
+    "lint": "eslint js/**/*.js",
+    "lint:fix": "eslint js/**/*.js --fix"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
+  }
+}

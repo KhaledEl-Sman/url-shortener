@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Snip</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/css/main.css" />
+  <script src="https://unpkg.com/@grafana/faro-web-sdk@1.10.0/dist/faro-web-sdk.iife.js"></script>
+  <script>window.ENV = { FARO_URL: "/faro/collect", APP_ENV: "production" };</script>
+</head>
+<body>
+  <div class="app-layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar__logo">⚡ Snip</div>
+
+      <nav aria-label="Main navigation">
+        <a href="#" class="sidebar__link sidebar__link--active" id="nav-links">
+          🔗 My links
+        </a>
+        <a href="#" class="sidebar__link" id="nav-analytics">
+          📊 Analytics
+        </a>
+      </nav>
+
+      <div class="sidebar__footer">
+        <div id="user-email" class="text-muted" style="padding:8px 12px;font-size:12px"></div>
+        <button id="logout-btn" class="sidebar__link" style="color:#ef4444">
+          Sign out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main-content">
+
+      <!-- Links view -->
+      <section id="view-links">
+        <div class="page-header">
+          <h1>My links</h1>
+        </div>
+
+        <!-- Shorten form -->
+        <div class="card" style="margin-bottom:1.5rem">
+          <div id="shorten-alert" class="alert hidden"></div>
+          <div class="shorten-form">
+            <input id="url-input" type="url" placeholder="https://example.com/very-long-url" />
+            <input id="title-input" type="text" placeholder="Title (optional)" style="max-width:200px" />
+            <button id="shorten-btn" class="btn btn--primary" style="width:auto">Shorten</button>
+          </div>
+          <!-- Success result -->
+          <div id="shorten-result" class="hidden" style="display:flex;align-items:center;gap:10px;margin-top:8px">
+            <span class="short-url" id="result-url"></span>
+            <button class="copy-btn" id="copy-btn" title="Copy to clipboard">📋 Copy</button>
+            <span id="copy-confirm" class="text-muted hidden">Copied!</span>
+          </div>
+        </div>
+
+        <!-- Links list -->
+        <div class="card">
+          <div id="links-loading" style="text-align:center;padding:2rem">
+            <span class="spinner" style="width:24px;height:24px;border-width:3px"></span>
+          </div>
+          <div id="links-empty" class="empty-state hidden">
+            <div style="font-size:2rem">🔗</div>
+            <p>No links yet — shorten your first URL above.</p>
+          </div>
+          <table class="links-table hidden" id="links-table">
+            <thead>
+              <tr>
+                <th>Short URL</th>
+                <th>Destination</th>
+                <th>Title</th>
+                <th>Clicks</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="links-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Analytics view (hidden by default) -->
+      <section id="view-analytics" class="hidden">
+        <div class="page-header">
+          <h1>Analytics</h1>
+        </div>
+        <div class="card">
+          <div id="analytics-placeholder" class="empty-state">
+            <div style="font-size:2rem">📊</div>
+            <p>Click the 📊 icon on a link to view its analytics.</p>
+          </div>
+          <div id="analytics-content" class="hidden"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script type="module" src="/js/monitoring.js"></script>
+  <script type="module">
+    import { api } from "/js/api.js";
+    import { clearToken, requireAuth } from "/js/auth.js";
+    import { trackEvent, trackError } from "/js/monitoring.js";
+
+    requireAuth();
+
+    // ── State ──────────────────────────────────────────────────────────────
+    let currentView = "links";
+
+    // ── DOM refs ───────────────────────────────────────────────────────────
+    const viewLinks     = document.getElementById("view-links");
+    const viewAnalytics = document.getElementById("view-analytics");
+    const navLinks      = document.getElementById("nav-links");
+    const navAnalytics  = document.getElementById("nav-analytics");
+
+    const urlInput     = document.getElementById("url-input");
+    const titleInput   = document.getElementById("title-input");
+    const shortenBtn   = document.getElementById("short-btn") || document.getElementById("shorten-btn");
+    const shortenAlert = document.getElementById("shorten-alert");
+    const shortenResult= document.getElementById("shorten-result");
+    const resultUrl    = document.getElementById("result-url");
+    const copyBtn      = document.getElementById("copy-btn");
+    const copyConfirm  = document.getElementById("copy-confirm");
+
+    const linksLoading = document.getElementById("links-loading");
+    const linksEmpty   = document.getElementById("links-empty");
+    const linksTable   = document.getElementById("links-table");
+    const linksBody    = document.getElementById("links-body");
+
+    const analyticsContent     = document.getElementById("analytics-content");
+    const analyticsPlaceholder = document.getElementById("analytics-placeholder");
+
+    // ── Nav ────────────────────────────────────────────────────────────────
+    function showView(view) {
+      currentView = view;
+      viewLinks.classList.toggle("hidden", view !== "links");
+      viewAnalytics.classList.toggle("hidden", view !== "analytics");
+      navLinks.classList.toggle("sidebar__link--active", view === "links");
+      navAnalytics.classList.toggle("sidebar__link--active", view === "analytics");
+    }
+
+    navLinks.addEventListener("click", (e) => { e.preventDefault(); showView("links"); });
+    navAnalytics.addEventListener("click", (e) => { e.preventDefault(); showView("analytics"); });
+
+    // ── Load user info ─────────────────────────────────────────────────────
+    (async () => {
+      try {
+        const { user } = await api.me();
+        document.getElementById("user-email").textContent = user.email;
+      } catch (_) { /* non-fatal */ }
+    })();
+
+    // ── Logout ─────────────────────────────────────────────────────────────
+    document.getElementById("logout-btn").addEventListener("click", async () => {
+      try { await api.logout(); } catch (_) { /* ignore */ }
+      clearToken();
+      window.location.href = "/pages/login";
+    });
+
+    // ── Load links ─────────────────────────────────────────────────────────
+    async function loadLinks() {
+      linksLoading.classList.remove("hidden");
+      linksEmpty.classList.add("hidden");
+      linksTable.classList.add("hidden");
+
+      try {
+        const { links } = await api.listLinks();
+        linksLoading.classList.add("hidden");
+
+        if (!links.length) {
+          linksEmpty.classList.remove("hidden");
+          return;
+        }
+
+        linksBody.innerHTML = links.map(renderRow).join("");
+        linksTable.classList.remove("hidden");
+      } catch (err) {
+        trackError(err);
+        linksLoading.innerHTML = `<p class="text-muted">Failed to load links.</p>`;
+      }
+    }
+
+    function renderRow(link) {
+      const created = new Date(link.created_at).toLocaleDateString();
+      const shortUrl = link.short_url || "";
+      return `
+        <tr data-code="${link.short_code}">
+          <td>
+            <span class="short-url">
+              <a href="${shortUrl}" target="_blank" style="color:inherit;text-decoration:none">${link.short_code}</a>
+            </span>
+          </td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            <a href="${link.original_url}" target="_blank" class="text-muted">${link.original_url}</a>
+          </td>
+          <td class="text-muted">${link.title || "—"}</td>
+          <td><span class="badge">👆 ${link.click_count ?? 0}</span></td>
+          <td class="text-muted">${created}</td>
+          <td style="display:flex;gap:6px">
+            <button class="btn btn--ghost btn--sm analytics-btn" data-code="${link.short_code}">📊</button>
+            <button class="btn btn--danger btn--sm delete-btn" data-code="${link.short_code}">🗑</button>
+          </td>
+        </tr>
+      `;
+    }
+
+    // ── Shorten ────────────────────────────────────────────────────────────
+    document.getElementById("shorten-btn").addEventListener("click", async () => {
+      shortenAlert.classList.add("hidden");
+      shortenResult.classList.add("hidden");
+
+      const url   = urlInput.value.trim();
+      const title = titleInput.value.trim();
+
+      if (!url) {
+        shortenAlert.textContent = "Enter a URL to shorten.";
+        shortenAlert.className   = "alert alert--error";
+        shortenAlert.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        const link = await api.createLink(url, title || undefined);
+        resultUrl.textContent = link.short_url;
+        resultUrl.href = link.short_url;
+        shortenResult.classList.remove("hidden");
+        trackEvent("link_created", { short_code: link.short_code });
+        urlInput.value = "";
+        titleInput.value = "";
+        loadLinks();
+      } catch (err) {
+        trackError(err);
+        shortenAlert.textContent = err.message || "Failed to shorten URL.";
+        shortenAlert.className   = "alert alert--error";
+        shortenAlert.classList.remove("hidden");
+      }
+    });
+
+    // ── Copy ───────────────────────────────────────────────────────────────
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(resultUrl.textContent);
+        copyConfirm.classList.remove("hidden");
+        setTimeout(() => copyConfirm.classList.add("hidden"), 2000);
+      } catch (_) { /* clipboard API unavailable */ }
+    });
+
+    // ── Delete / Analytics (event delegation) ─────────────────────────────
+    linksBody.addEventListener("click", async (e) => {
+      const deleteBtn   = e.target.closest(".delete-btn");
+      const analyticsBtn= e.target.closest(".analytics-btn");
+
+      if (deleteBtn) {
+        const code = deleteBtn.dataset.code;
+        if (!confirm(`Delete /${code}?`)) return;
+        try {
+          await api.deleteLink(code);
+          trackEvent("link_deleted", { short_code: code });
+          loadLinks();
+        } catch (err) {
+          trackError(err);
+          alert(err.message || "Delete failed.");
+        }
+      }
+
+      if (analyticsBtn) {
+        showAnalytics(analyticsBtn.dataset.code);
+        showView("analytics");
+      }
+    });
+
+    // ── Analytics ─────────────────────────────────────────────────────────
+    async function showAnalytics(code) {
+      analyticsPlaceholder.classList.add("hidden");
+      analyticsContent.classList.remove("hidden");
+      analyticsContent.innerHTML = `<div style="text-align:center;padding:2rem"><span class="spinner" style="width:24px;height:24px;border-width:3px"></span></div>`;
+
+      try {
+        const data = await api.analytics(code);
+        analyticsContent.innerHTML = `
+          <h2 style="font-size:16px;font-weight:600;margin-bottom:1rem">/${code}</h2>
+          <p class="text-muted" style="margin-bottom:1.5rem;word-break:break-all">${data.original_url}</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:1.5rem">
+            <div class="card" style="text-align:center">
+              <div style="font-size:28px;font-weight:700;color:#6c63ff">${data.total_clicks}</div>
+              <div class="text-muted">Total clicks</div>
+            </div>
+          </div>
+          <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">Recent clicks</h3>
+          ${data.recent_clicks.length
+            ? `<table class="links-table">
+                <thead><tr><th>Time</th><th>IP</th><th>Referer</th></tr></thead>
+                <tbody>
+                  ${data.recent_clicks.map(c => `
+                    <tr>
+                      <td class="text-muted">${new Date(c.clicked_at).toLocaleString()}</td>
+                      <td class="text-muted">${c.ip_address || "—"}</td>
+                      <td class="text-muted">${c.referer || "—"}</td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>`
+            : `<p class="text-muted">No clicks recorded yet.</p>`
+          }
+        `;
+        trackEvent("analytics_viewed", { short_code: code });
+      } catch (err) {
+        trackError(err);
+        analyticsContent.innerHTML = `<p class="text-muted">Failed to load analytics.</p>`;
+      }
+    }
+
+    // ── Init ───────────────────────────────────────────────────────────────
+    loadLinks();
+  </script>
+</body>
+</html>

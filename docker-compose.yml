@@ -1,0 +1,163 @@
+---
+# ── URL Shortener — local development stack ────────────────────────────────────
+#
+# Services:
+#   frontend   — Nginx serving Vanilla JS SPA (port 80)
+#   backend    — Flask + Gunicorn REST API    (port 5000)
+#   postgres   — PostgreSQL 16               (port 5432)
+#   redis      — Redis 7                     (port 6379)
+#   alloy      — Grafana Alloy log shipper   (port 12347 Faro, 12348 UI)
+#
+# Usage:
+#   cp .env.example .env      # fill in secrets
+#   docker compose up --build
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+    labels: "app,service"
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+
+services:
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: snip-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      - NGINX_HOST=localhost
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app-net
+    logging: *default-logging
+    labels:
+      app: "url-shortener"
+      service: "frontend"
+
+  # ── Backend ───────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: snip-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_ENV:       ${FLASK_ENV:-production}
+      SECRET_KEY:      ${SECRET_KEY}
+      JWT_SECRET_KEY:  ${JWT_SECRET_KEY}
+      DATABASE_URL:    postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL:       redis://redis:6379/0
+      BASE_URL:        ${BASE_URL:-http://localhost}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost}
+      OTLP_ENDPOINT:   http://alloy:4317
+      OTEL_ENABLED:    "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-net
+    logging: *default-logging
+    labels:
+      app: "url-shortener"
+      service: "backend"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: snip-postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"   # host 5433 → container 5432
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-urlshortener}
+      POSTGRES_USER:     ${POSTGRES_USER:-snip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA:            /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - app-net
+    logging: *default-logging
+    labels:
+      app: "url-shortener"
+      service: "postgres"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-snip} -d ${POSTGRES_DB:-urlshortener}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: snip-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+        --appendonly yes
+        --maxmemory 128mb
+        --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-net
+    logging: *default-logging
+    labels:
+      app: "url-shortener"
+      service: "redis"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Alloy — log shipper sidecar ───────────────────────────────────────────
+  alloy:
+    image: grafana/alloy:latest
+    container_name: snip-alloy
+    restart: unless-stopped
+    ports:
+      - "12347:12347"   # Faro RUM receiver (frontend ships here)
+      - "12348:12348"   # Alloy UI
+      - "4317:4317"     # OTLP gRPC (backend traces)
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: run /etc/alloy/config.alloy --server.http.listen-addr=0.0.0.0:12348
+    networks:
+      - app-net
+    logging: *default-logging
+    labels:
+      app: "url-shortener"
+      service: "alloy"

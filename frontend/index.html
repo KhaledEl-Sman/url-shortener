@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snip — URL Shortener</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/css/main.css" />
+
+  <!-- Grafana Faro RUM SDK — must load before app scripts -->
+  <script src="https://unpkg.com/@grafana/faro-web-sdk@1.10.0/dist/faro-web-sdk.iife.js"></script>
+
+  <!-- Runtime config injected by Nginx or set here for local dev -->
+  <script>
+    window.ENV = {
+      FARO_URL:  "/faro/collect",   /* Nginx proxies → Alloy */
+      APP_ENV:   "production",
+    };
+  </script>
+</head>
+<body>
+  <div class="page-center">
+    <div style="text-align:center">
+      <h1 style="font-size:2rem;font-weight:700;color:#6c63ff;margin-bottom:8px">Snip</h1>
+      <p style="color:#8892a4;margin-bottom:2rem">Shorten. Share. Track.</p>
+      <div style="display:flex;gap:12px;justify-content:center">
+        <a href="/pages/login"    class="btn btn--primary" style="width:auto">Sign in</a>
+        <a href="/pages/register" class="btn btn--ghost"   style="width:auto">Create account</a>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/monitoring.js"></script>
+</body>
+</html>

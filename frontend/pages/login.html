@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Snip</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/css/main.css" />
+  <script src="https://unpkg.com/@grafana/faro-web-sdk@1.10.0/dist/faro-web-sdk.iife.js"></script>
+  <script>window.ENV = { FARO_URL: "/faro/collect", APP_ENV: "production" };</script>
+</head>
+<body>
+  <div class="page-center">
+    <div class="card card--narrow">
+      <h1 style="font-size:20px;font-weight:600;margin-bottom:6px">Sign in</h1>
+      <p class="text-muted" style="margin-bottom:1.5rem">
+        Don't have an account? <a href="/pages/register" style="color:#6c63ff">Create one</a>
+      </p>
+
+      <div id="alert" class="alert hidden"></div>
+
+      <form id="login-form" novalidate>
+        <div class="form-group">
+          <label for="email">Email address</label>
+          <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button id="submit-btn" type="submit" class="btn btn--primary">
+          Sign in
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="/js/monitoring.js"></script>
+  <script type="module">
+    import { api } from "/js/api.js";
+    import { saveToken, requireGuest } from "/js/auth.js";
+    import { trackEvent, trackError } from "/js/monitoring.js";
+
+    requireGuest();
+
+    const form      = document.getElementById("login-form");
+    const alertEl   = document.getElementById("alert");
+    const submitBtn = document.getElementById("submit-btn");
+
+    function showAlert(msg, type = "error") {
+      alertEl.textContent = msg;
+      alertEl.className   = `alert alert--${type}`;
+      alertEl.classList.remove("hidden");
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      alertEl.classList.add("hidden");
+
+      const email    = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      submitBtn.disabled   = true;
+      submitBtn.innerHTML  = "<span class=\"spinner\"></span>";
+
+      try {
+        const data = await api.login(email, password);
+        saveToken(data.access_token);
+        trackEvent("login_success", { email });
+        window.location.href = "/pages/dashboard";
+      } catch (err) {
+        trackError(err);
+        showAlert(err.message || "Login failed. Check your credentials.");
+        submitBtn.disabled  = false;
+        submitBtn.innerHTML = "Sign in";
+      }
+    });
+  </script>
+</body>
+</html>
