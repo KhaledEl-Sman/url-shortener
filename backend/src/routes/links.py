@@ -4,6 +4,7 @@ POST   /api/links          create
 GET    /api/links          list user's links
 DELETE /api/links/<code>   delete
 """
+
 import logging
 import os
 
@@ -82,12 +83,17 @@ def list_links():
         d["short_url"] = f"{BASE_URL}/{link.short_code}"
         items.append(d)
 
-    return jsonify({
-        "links": items,
-        "total": pagination.total,
-        "pages": pagination.pages,
-        "page": page,
-    }), 200
+    return (
+        jsonify(
+            {
+                "links": items,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "page": page,
+            }
+        ),
+        200,
+    )
 
 
 @links_bp.route("/<string:short_code>", methods=["DELETE"])

@@ -1,6 +1,7 @@
 """
 Auth routes: /api/auth/register  /api/auth/login  /api/auth/logout  /api/auth/me
 """
+
 import logging
 
 from flask import Blueprint, jsonify, request

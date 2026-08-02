@@ -1,6 +1,7 @@
 """
 URL Shortener - Flask Application Entry Point
 """
+
 import logging
 import os
 import sys

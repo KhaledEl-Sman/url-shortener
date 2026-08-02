@@ -2,6 +2,7 @@
 Analytics routes: click stats per link
 GET /api/analytics/<short_code>   summary + recent clicks
 """
+
 import logging
 
 from flask import Blueprint, jsonify
@@ -28,15 +29,17 @@ def link_analytics(short_code: str):
 
     # Last 10 clicks from DB
     recent = (
-        Click.query.filter_by(link_id=link.id)
-        .order_by(Click.clicked_at.desc())
-        .limit(10)
-        .all()
+        Click.query.filter_by(link_id=link.id).order_by(Click.clicked_at.desc()).limit(10).all()
     )
 
-    return jsonify({
-        "short_code": short_code,
-        "original_url": link.original_url,
-        "total_clicks": total_clicks,
-        "recent_clicks": [c.to_dict() for c in recent],
-    }), 200
+    return (
+        jsonify(
+            {
+                "short_code": short_code,
+                "original_url": link.original_url,
+                "total_clicks": total_clicks,
+                "recent_clicks": [c.to_dict() for c in recent],
+            }
+        ),
+        200,
+    )

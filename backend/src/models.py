@@ -1,6 +1,7 @@
 """
 SQLAlchemy models: User, Link, Click
 """
+
 import datetime
 
 import bcrypt
@@ -22,14 +23,12 @@ class User(db.Model):
     )
 
     def set_password(self, password: str):
-        self.password_hash = bcrypt.hashpw(
-            password.encode("utf-8"), bcrypt.gensalt()
-        ).decode("utf-8")
+        self.password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode(
+            "utf-8"
+        )
 
     def check_password(self, password: str) -> bool:
-        return bcrypt.checkpw(
-            password.encode("utf-8"), self.password_hash.encode("utf-8")
-        )
+        return bcrypt.checkpw(password.encode("utf-8"), self.password_hash.encode("utf-8"))
 
     def to_dict(self):
         return {
@@ -83,7 +82,7 @@ class Click(db.Model):
         db.Integer, db.ForeignKey("links.id", ondelete="CASCADE"), nullable=False, index=True
     )
     clicked_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
-    ip_address = db.Column(db.String(45), nullable=True)   # IPv6-safe length
+    ip_address = db.Column(db.String(45), nullable=True)  # IPv6-safe length
     user_agent = db.Column(db.String(512), nullable=True)
     referer = db.Column(db.String(1024), nullable=True)
 

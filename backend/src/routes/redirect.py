@@ -2,6 +2,7 @@
 Redirect route: GET /<short_code>
 Redis cache-first, then PostgreSQL. Records click in DB.
 """
+
 import logging
 
 from flask import Blueprint, jsonify, redirect, request
