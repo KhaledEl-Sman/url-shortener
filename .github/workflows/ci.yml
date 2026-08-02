@@ -1,0 +1,293 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  DOCKER_IMAGE_BACKEND:  ${{ secrets.DOCKERHUB_USERNAME }}/snip-backend
+  DOCKER_IMAGE_FRONTEND: ${{ secrets.DOCKERHUB_USERNAME }}/snip-frontend
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION:   "22"
+
+jobs:
+
+  # ── Job 1: Lint Backend ──────────────────────────────────────────────────────
+  lint-backend:
+    name: Lint — Python
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install lint tools
+        run: pip install flake8 black isort
+
+      - name: Run flake8
+        run: flake8 src/ --max-line-length=100 --exclude=migrations
+
+      - name: Run black (check only)
+        run: black --check --line-length=100 src/
+
+      - name: Run isort (check only)
+        run: isort --check-only --profile=black src/
+
+  # ── Job 2: Lint Frontend ─────────────────────────────────────────────────────
+  lint-frontend:
+    name: Lint — JavaScript (ESLint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # ── Job 3: Test Backend ──────────────────────────────────────────────────────
+  test-backend:
+    name: Test — pytest
+    runs-on: ubuntu-latest
+    needs: lint-backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB:       testdb
+          POSTGRES_USER:     testuser
+          POSTGRES_PASSWORD: testpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U testuser -d testdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-cov
+
+      - name: Run tests with coverage
+        env:
+          SECRET_KEY:      test-secret-key-for-ci
+          JWT_SECRET_KEY:  test-jwt-secret-for-ci
+          DATABASE_URL:    postgresql://testuser:testpass@localhost:5432/testdb
+          REDIS_URL:       redis://localhost:6379/0
+          BASE_URL:        http://localhost
+          OTEL_ENABLED:    "false"
+        run: |
+          pytest tests/ \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/coverage.xml
+          retention-days: 7
+
+  # ── Job 4: SonarCloud Analysis ───────────────────────────────────────────────
+  sonarcloud:
+    name: SonarCloud — Static Analysis
+    runs-on: ubuntu-latest
+    needs: test-backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Full history needed for blame/diff analysis
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN:  ${{ secrets.SONAR_TOKEN }}
+
+  # ── Job 5: Trivy Security Scan ───────────────────────────────────────────────
+  trivy-scan:
+    name: Trivy — Container Security Scan
+    runs-on: ubuntu-latest
+    needs: [lint-backend, lint-frontend]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build backend image for scanning
+        run: |
+          docker build \
+            --target runtime \
+            -t snip-backend:scan \
+            ./backend
+
+      - name: Build frontend image for scanning
+        run: |
+          docker build \
+            --target runtime \
+            -t snip-frontend:scan \
+            ./frontend
+
+      - name: Scan backend image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref:    snip-backend:scan
+          format:       sarif
+          output:       trivy-backend.sarif
+          severity:     CRITICAL,HIGH
+          exit-code:    "1"
+          ignore-unfixed: true
+
+      - name: Scan frontend image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref:    snip-frontend:scan
+          format:       sarif
+          output:       trivy-frontend.sarif
+          severity:     CRITICAL,HIGH
+          exit-code:    "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy backend results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category:   trivy-backend
+
+      - name: Upload Trivy frontend results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif
+          category:   trivy-frontend
+
+  # ── Job 6: Build & Push to Docker Hub ───────────────────────────────────────
+  build-and-push:
+    name: Build & Push — Docker Hub
+    runs-on: ubuntu-latest
+    needs: [test-backend, trivy-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE_BACKEND }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=true
+
+      - name: Extract metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE_FRONTEND }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=true
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context:    ./backend
+          target:     runtime
+          push:       true
+          tags:       ${{ steps.meta-backend.outputs.tags }}
+          labels:     ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context:    ./frontend
+          target:     runtime
+          push:       true
+          tags:       ${{ steps.meta-frontend.outputs.tags }}
+          labels:     ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Print image digest summary
+        run: |
+          echo "### Docker Images Published 🐳" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Tags |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${{ env.DOCKER_IMAGE_BACKEND }}\` | \`latest\`, \`sha-${GITHUB_SHA::7}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${{ env.DOCKER_IMAGE_FRONTEND }}\` | \`latest\`, \`sha-${GITHUB_SHA::7}\` |" >> $GITHUB_STEP_SUMMARY
