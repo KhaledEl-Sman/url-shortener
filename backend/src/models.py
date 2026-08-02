@@ -4,7 +4,6 @@ SQLAlchemy models: User, Link, Click
 import datetime
 
 import bcrypt
-from sqlalchemy import func
 
 from src.extensions import db
 
@@ -18,7 +17,9 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
-    links = db.relationship("Link", back_populates="owner", lazy="dynamic", cascade="all, delete-orphan")
+    links = db.relationship(
+        "Link", back_populates="owner", lazy="dynamic", cascade="all, delete-orphan"
+    )
 
     def set_password(self, password: str):
         self.password_hash = bcrypt.hashpw(
@@ -51,7 +52,9 @@ class Link(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     owner = db.relationship("User", back_populates="links")
-    clicks = db.relationship("Click", back_populates="link", lazy="dynamic", cascade="all, delete-orphan")
+    clicks = db.relationship(
+        "Click", back_populates="link", lazy="dynamic", cascade="all, delete-orphan"
+    )
 
     @property
     def click_count(self):
@@ -76,7 +79,9 @@ class Click(db.Model):
     __tablename__ = "clicks"
 
     id = db.Column(db.Integer, primary_key=True)
-    link_id = db.Column(db.Integer, db.ForeignKey("links.id", ondelete="CASCADE"), nullable=False, index=True)
+    link_id = db.Column(
+        db.Integer, db.ForeignKey("links.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     clicked_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
     ip_address = db.Column(db.String(45), nullable=True)   # IPv6-safe length
     user_agent = db.Column(db.String(512), nullable=True)
