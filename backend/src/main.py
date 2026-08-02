@@ -21,10 +21,10 @@ from prometheus_flask_exporter import PrometheusMetrics
 from pythonjsonlogger import jsonlogger
 
 from src.extensions import db, jwt, limiter, redis_client
+from src.routes.analytics import analytics_bp
 from src.routes.auth import auth_bp
 from src.routes.links import links_bp
 from src.routes.redirect import redirect_bp
-from src.routes.analytics import analytics_bp
 
 
 def setup_logging():
