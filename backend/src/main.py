@@ -7,7 +7,6 @@ import sys
 
 from flask import Flask, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter

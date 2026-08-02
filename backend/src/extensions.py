@@ -2,8 +2,6 @@
 Shared Flask extension instances — imported by main.py and routes.
 Avoids circular imports by not importing app here.
 """
-import os
-
 import redis
 from flask import Flask
 from flask_jwt_extended import JWTManager

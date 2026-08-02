@@ -4,7 +4,7 @@ GET /api/analytics/<short_code>   summary + recent clicks
 """
 import logging
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from src.extensions import redis_client
